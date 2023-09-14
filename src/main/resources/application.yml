@@ -1,0 +1,61 @@
+application:
+  id: "business-process-supervisor"
+security:
+  protocol: SASL_SSL
+sasl:
+  mechanism: PLAIN
+  jaas:
+    config: ENC(CoNWHHSFzxukI/us7UYQ7pca8GN9/JGVyYMwbigPTYL2oLLEYsPfp9MH8DEMp7n6QGVZFkqyQs6ofIqvZRRtGqHTjSnRFV+XKufqxNPqFLe52e8PuRUHavjOUhuxrJsbLRK6aVquz/R5KijaQQxlWF20EeDeb9lEmTVIntqq7IzXGIhk1gEF4C6xRYmiikKcNwF5ko7YHDpuT+9QwUN+gPL+JBRR56iIY2KfGcq9AD9r4n2pEwSpRg==)
+bootstrap:
+  servers: ENC(fMMx/HbTIphSnI4Rm+bi6p0jSeDr/8rSy/HYC+yXg0djrtRMjY8wBMr2/7/Ww5S1E+RTuntnqTI=)
+schema:
+  registry:
+    url: ENC(1voXW1eTr/FM4F16B/9DOKNnzx/rBNfIbFlTDEJeNQop894H5K41uiV8gnt5Ds0xSvFEv0wDGnn63V9D2wxhsQ==)
+basic:
+  auth:
+    user:
+      info: ENC(zPIH+fllAnR1ojcfhUUGKy8hGQ2kkMrFW/km70Lzr9mImnsEdGW84F0d7RxUKJd4fydHtEeMxHYVtt8aJTmdZIRT4HXPkdwgMmzNaLgRINIloa4mTj/itGGoABBhD+Vp)
+    credentials:
+      source: USER_INFO
+dlq:
+  topic: "supervisor.dlq"
+
+jasypt:
+  encryptor:
+    algorithm: PBEWithMD5AndTripleDES
+    iv-generator-classname: org.jasypt.iv.NoIvGenerator
+    password: ${JASYPT_ENCRYPTOR_PASSWORD}
+
+server:
+  port: 8080
+
+workflow:
+  name: my-workflow
+  correlationIdHeaderName: transactionId
+  successOutputTopic: my-workflow.success
+  warningOutputTopic: my-workflow.warning
+  errorOutputTopic: my-workflow.error
+  definition:
+    - name: service-a
+      inputTopics:
+        - name: topic-a
+          type: INPUT
+      successOutputTopics:
+        - name: topic-b
+          type: INPUT
+      errorOutputTopics:
+        - name: service-a.failed
+          type: ERROR
+      warningOutputTopics:
+    - name: service-b
+      isFinal: true
+      inputTopics:
+        - name: topic-b
+          type: INPUT
+      successOutputTopics:
+        - name: topic-c
+          type: INPUT
+      errorOutputTopics:
+      warningOutputTopics:
+        - name: service-b.failed
+          type: WARNING

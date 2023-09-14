@@ -1,0 +1,35 @@
+{
+  "type": "record",
+  "name": "SupervisionRecord",
+  "namespace": "com.example.demo.data",
+  "fields": [
+    {
+      "name": "correlationId",
+      "type": "string"
+    },
+    {
+      "name": "events",
+      "type": {
+        "type": "array",
+        "items": {
+          "name": "Event",
+          "type": "record",
+          "fields": [
+            {
+              "name": "nodeName",
+              "type": "string"
+            },
+            {
+              "name": "timestamp",
+              "type": "long"
+            },
+            {
+              "name": "topic",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

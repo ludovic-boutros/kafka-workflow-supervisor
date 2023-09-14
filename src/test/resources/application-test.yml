@@ -1,0 +1,30 @@
+workflow:
+  name: my-workflow
+  correlationIdHeaderName: transactionId
+  successOutputTopic: my-workflow.success
+  warningOutputTopic: my-workflow.warning
+  errorOutputTopic: my-workflow.error
+  definition:
+    - name: service-a
+      inputTopics:
+        - name: topic-a
+          type: INPUT
+      successOutputTopics:
+        - name: topic-b
+          type: INPUT
+      errorOutputTopics:
+        - name: service-a.failed
+          type: ERROR
+      warningOutputTopics:
+    - name: service-b
+      isFinal: true
+      inputTopics:
+        - name: topic-b
+          type: INPUT
+      successOutputTopics:
+        - name: topic-c
+          type: INPUT
+      errorOutputTopics:
+      warningOutputTopics:
+        - name: service-b.failed
+          type: WARNING
