@@ -1,5 +1,6 @@
 package com.example.demo.topology;
 
+import com.example.demo.configuration.model.Node;
 import com.example.demo.configuration.model.Topic;
 import com.example.demo.configuration.model.Workflow;
 import com.example.demo.data.SupervisionRecord;
@@ -60,38 +61,28 @@ public class SupervisorTopologyProvider implements Supplier<Topology> {
                         AvroSerdes.<SupervisionRecord>get()));
 
         workflowDefinition.forEach(node -> {
-            ProcessorSupplier<String, byte[], String, SupervisionRecord> inputProcessorSupplier = () -> UpdateSupervisionStateProcessor.builder()
-                    .correlationIdHeaderName(correlationIdHeaderName)
-                    .nodeName(node.getName())
-                    .isFinal(false)
-                    .build();
-
-            ProcessorSupplier<String, byte[], String, SupervisionRecord> successProcessorSupplier = () -> UpdateSupervisionStateProcessor.builder()
-                    .correlationIdHeaderName(correlationIdHeaderName)
-                    .nodeName(node.getName())
-                    .isFinal(node.isFinal())
-                    .build();
-
-            ProcessorSupplier<String, byte[], String, SupervisionRecord> warnErrorProcessorSupplier = () -> UpdateSupervisionStateProcessor.builder()
-                    .correlationIdHeaderName(correlationIdHeaderName)
-                    .nodeName(node.getName())
-                    .isFinal(true)
-                    .build();
-
             // Consume input topics
-            stream(builder, inputProcessorSupplier, node::getInputTopics);
+            stream(builder, () -> getProcessor(node, false), node::getInputTopics);
 
             // Consume and process success topics
-            stream(builder, successProcessorSupplier, node::getSuccessOutputTopics, successOutputTopic);
+            stream(builder, () -> getProcessor(node, node.isFinal()), node::getSuccessOutputTopics, successOutputTopic);
 
             // Consume and process warning topics
-            stream(builder, warnErrorProcessorSupplier, node::getWarningOutputTopics, warningOutputTopic);
+            stream(builder, () -> getProcessor(node, true), node::getWarningOutputTopics, warningOutputTopic);
 
             // Consume and process error topics
-            stream(builder, warnErrorProcessorSupplier, node::getErrorOutputTopics, errorOutputTopic);
+            stream(builder, () -> getProcessor(node, true), node::getErrorOutputTopics, errorOutputTopic);
         });
 
         return builder.build();
+    }
+
+    private UpdateSupervisionStateProcessor getProcessor(Node node, boolean isFinal) {
+        return UpdateSupervisionStateProcessor.builder()
+                .correlationIdHeaderName(correlationIdHeaderName)
+                .nodeName(node.getName())
+                .isFinal(isFinal)
+                .build();
     }
 
     private void stream(StreamsBuilder builder,
