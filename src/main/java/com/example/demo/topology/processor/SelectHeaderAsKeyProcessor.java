@@ -27,8 +27,10 @@ public class SelectHeaderAsKeyProcessor extends ContextualProcessor<String, byte
             return;
         }
 
-        context().forward(new Record<>(new String(correlationIdHeader.value(),
-                StandardCharsets.UTF_8), record.value(), record.timestamp(), record.headers()));
+        context().forward(new Record<>(new String(correlationIdHeader.value(), StandardCharsets.UTF_8),
+                record.value(),
+                record.timestamp(),
+                record.headers()));
     }
 
     @Override

@@ -5,25 +5,11 @@ import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Predicate;
 
 public class Workflow extends ArrayList<Node> {
-    private final Map<String, Node> perNodeNameNodes = new HashMap<>();
-
-    public Node getNodeWithName(String name) {
-        return perNodeNameNodes.get(name);
-    }
 
     public void computeWorkflowTreeDepth() {
-        // Validate that all nodes have different names
-        forEach(node -> perNodeNameNodes.put(node.getName(), node));
-
-        if (size() != perNodeNameNodes.size()) {
-            throw new IllegalArgumentException("Your workflow configuration contains nodes with same names.");
-        }
-
         Multimap<Topic, Node> nodesPerInputTopic = LinkedListMultimap.create();
         Multimap<Topic, Node> nodesPerOutputTopic = LinkedListMultimap.create();
 

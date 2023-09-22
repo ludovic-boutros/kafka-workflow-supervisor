@@ -36,6 +36,8 @@ This could be optional if the input topic is already partitioned that way (To be
 - Manage stream exception catcher
 - Check Kafka Streams liveness/readyness behavior using actuator
 - Optional repartitioning
+- Nodes without input/output topics
+- Cyclic workflows
 
 
 
