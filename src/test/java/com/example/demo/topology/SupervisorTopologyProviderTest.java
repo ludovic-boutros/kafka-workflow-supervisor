@@ -16,6 +16,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Properties;
 
@@ -39,25 +41,24 @@ class SupervisorTopologyProviderTest {
     private TestInputTopic<String, byte[]> serviceASuccessTopic;
     private TestInputTopic<String, byte[]> serviceAErrorTopic;
     private TestInputTopic<String, byte[]> serviceBSuccessTopic;
-    private TestInputTopic<String, byte[]> serviceBWarnTopic;
+    private TestInputTopic<String, byte[]> serviceBErrorTopic;
     // Supervisor topics
-    private TestOutputTopic<String, SupervisionRecord> supervisorSuccessTopic;
-    private TestOutputTopic<String, SupervisionRecord> supervisorWarnTopic;
-    private TestOutputTopic<String, SupervisionRecord> supervisorErrorTopic;
+    private TestOutputTopic<String, SupervisionRecord> supervisorOutputTopic;
+
     private TopologyTestDriver testDriver;
     private WorkflowConfiguration workflowConfiguration;
 
     @BeforeEach
     public void init() {
         workflowConfiguration = fromYaml("application-test.yml", "workflow", WorkflowConfiguration.class);
+        workflowConfiguration.getDefinition().computeWorkflowTreeDepth();
 
-        // fixDefinitionForNullValues(workflowConfiguration.getDefinition());
         var topology = SupervisorTopologyProvider.builder()
-                .successOutputTopic(workflowConfiguration.getSuccessOutputTopic())
-                .errorOutputTopic(workflowConfiguration.getErrorOutputTopic())
-                .warningOutputTopic(workflowConfiguration.getWarningOutputTopic())
+                .outputTopic(workflowConfiguration.getOutputTopic())
                 .workflowDefinition(workflowConfiguration.getDefinition())
                 .correlationIdHeaderName(workflowConfiguration.getCorrelationIdHeaderName())
+                .purgeSchedulingPeriod(Duration.ofSeconds(workflowConfiguration.getPurgeSchedulingPeriodSeconds()))
+                .eventTimeout(Duration.ofSeconds(workflowConfiguration.getEventTimeoutSeconds()))
                 .build()
                 .get();
 
@@ -69,12 +70,10 @@ class SupervisorTopologyProviderTest {
         serviceASuccessTopic = testDriver.createInputTopic("topic-b", Serdes.String().serializer(), Serdes.ByteArray().serializer());
         serviceAErrorTopic = testDriver.createInputTopic("service-a.failed", Serdes.String().serializer(), Serdes.ByteArray().serializer());
         serviceBSuccessTopic = testDriver.createInputTopic("topic-c", Serdes.String().serializer(), Serdes.ByteArray().serializer());
-        serviceBWarnTopic = testDriver.createInputTopic("service-b.failed", Serdes.String().serializer(), Serdes.ByteArray().serializer());
+        serviceBErrorTopic = testDriver.createInputTopic("service-b.failed", Serdes.String().serializer(), Serdes.ByteArray().serializer());
 
         // Supervisor topics
-        supervisorSuccessTopic = testDriver.createOutputTopic("my-workflow.success", Serdes.String().deserializer(), AvroSerdes.<SupervisionRecord>get().deserializer());
-        supervisorWarnTopic = testDriver.createOutputTopic("my-workflow.warning", Serdes.String().deserializer(), AvroSerdes.<SupervisionRecord>get().deserializer());
-        supervisorErrorTopic = testDriver.createOutputTopic("my-workflow.error", Serdes.String().deserializer(), AvroSerdes.<SupervisionRecord>get().deserializer());
+        supervisorOutputTopic = testDriver.createOutputTopic("supervisor.events", Serdes.String().deserializer(), AvroSerdes.<SupervisionRecord>get().deserializer());
     }
 
     @AfterEach
@@ -88,58 +87,66 @@ class SupervisorTopologyProviderTest {
         headers.add(workflowConfiguration.getCorrelationIdHeaderName(), "1234".getBytes(StandardCharsets.UTF_8));
         serviceAInputTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
 
-        assertTrue(supervisorSuccessTopic.readValuesToList().isEmpty());
-        assertTrue(supervisorWarnTopic.readValuesToList().isEmpty());
-        assertTrue(supervisorErrorTopic.readValuesToList().isEmpty());
+        assertTrue(supervisorOutputTopic.readValuesToList().isEmpty());
     }
 
     @Test
-    public void shouldProduceOutputInSuccessIfNotFinalStateSuccess() {
+    public void shouldNotProduceOutputIfNotCompleteFlowEvenInFinalState() {
+        RecordHeaders headers = new RecordHeaders();
+        headers.add(workflowConfiguration.getCorrelationIdHeaderName(), "1234".getBytes(StandardCharsets.UTF_8));
+        serviceBSuccessTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
+
+        assertTrue(supervisorOutputTopic.readValuesToList().isEmpty());
+    }
+
+    @Test
+    public void shouldProduceOutputIfFinalStateAndComplete() {
         RecordHeaders headers = new RecordHeaders();
         headers.add(workflowConfiguration.getCorrelationIdHeaderName(), "1234".getBytes(StandardCharsets.UTF_8));
         serviceAInputTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
         serviceASuccessTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
         serviceBSuccessTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
 
-        List<SupervisionRecord> succesRecord = supervisorSuccessTopic.readValuesToList();
-        assertFalse(succesRecord.isEmpty());
+        List<SupervisionRecord> records = supervisorOutputTopic.readValuesToList();
+        assertFalse(records.isEmpty());
         // TODO: validate content
-
-        assertTrue(supervisorWarnTopic.readValuesToList().isEmpty());
-        assertTrue(supervisorErrorTopic.readValuesToList().isEmpty());
     }
 
     @Test
-    public void shouldProduceOutputInWarningIfFinalStateWarning() {
+    public void shouldProduceOutputInServiceBIfFinalStateError() {
         RecordHeaders headers = new RecordHeaders();
         headers.add(workflowConfiguration.getCorrelationIdHeaderName(), "1234".getBytes(StandardCharsets.UTF_8));
         serviceAInputTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
         serviceASuccessTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
-        serviceBWarnTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
+        serviceBErrorTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
 
-        assertTrue(supervisorSuccessTopic.readValuesToList().isEmpty());
-
-        List<SupervisionRecord> warnRecord = supervisorWarnTopic.readValuesToList();
-        assertFalse(warnRecord.isEmpty());
+        List<SupervisionRecord> records = supervisorOutputTopic.readValuesToList();
+        assertFalse(records.isEmpty());
         // TODO: validate content
-
-        assertTrue(supervisorErrorTopic.readValuesToList().isEmpty());
     }
 
     @Test
-    public void shouldProduceOutputInErrorIfFinalStateError() {
+    public void shouldProduceOutputInServiceAIfFinalStateError() {
         RecordHeaders headers = new RecordHeaders();
         headers.add(workflowConfiguration.getCorrelationIdHeaderName(), "1234".getBytes(StandardCharsets.UTF_8));
         serviceAInputTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
         serviceAErrorTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers));
 
-        assertTrue(supervisorSuccessTopic.readValuesToList().isEmpty());
-        assertTrue(supervisorWarnTopic.readValuesToList().isEmpty());
-
-        List<SupervisionRecord> errorRecord = supervisorErrorTopic.readValuesToList();
-        assertFalse(errorRecord.isEmpty());
+        List<SupervisionRecord> records = supervisorOutputTopic.readValuesToList();
+        assertFalse(records.isEmpty());
         // TODO: validate content
+    }
 
-        assertTrue(supervisorErrorTopic.readValuesToList().isEmpty());
+    @Test
+    public void shouldProduceOutputInServiceAIfTimeout() {
+        RecordHeaders headers = new RecordHeaders();
+        headers.add(workflowConfiguration.getCorrelationIdHeaderName(), "1234".getBytes(StandardCharsets.UTF_8));
+        serviceAInputTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8), headers, Instant.now().toEpochMilli()));
+
+        testDriver.advanceWallClockTime(Duration.ofSeconds(30));
+
+        List<SupervisionRecord> records = supervisorOutputTopic.readValuesToList();
+        assertFalse(records.isEmpty());
+        // TODO: validate content
     }
 }

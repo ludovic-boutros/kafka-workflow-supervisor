@@ -18,7 +18,7 @@ basic:
     credentials:
       source: USER_INFO
 dlq:
-  topic: "supervisor.dlq"
+  topic: supervisor.dlq
 
 jasypt:
   encryptor:
@@ -32,30 +32,19 @@ server:
 workflow:
   name: my-workflow
   correlationIdHeaderName: transactionId
-  successOutputTopic: my-workflow.success
-  warningOutputTopic: my-workflow.warning
-  errorOutputTopic: my-workflow.error
+  outputTopic: supervisor.events
+  purgeSchedulingPeriodSeconds: 120
+  eventTimeoutSeconds: 300
   definition:
     - name: service-a
       inputTopics:
         - name: topic-a
-          type: INPUT
-      successOutputTopics:
+      outputTopics:
         - name: topic-b
-          type: INPUT
-      errorOutputTopics:
         - name: service-a.failed
-          type: ERROR
-      warningOutputTopics:
     - name: service-b
-      isFinal: true
       inputTopics:
         - name: topic-b
-          type: INPUT
-      successOutputTopics:
+      outputTopics:
         - name: topic-c
-          type: INPUT
-      errorOutputTopics:
-      warningOutputTopics:
         - name: service-b.failed
-          type: WARNING

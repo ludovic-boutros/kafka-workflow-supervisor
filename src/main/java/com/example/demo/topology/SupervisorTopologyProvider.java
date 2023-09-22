@@ -1,9 +1,10 @@
 package com.example.demo.topology;
 
-import com.example.demo.configuration.model.Node;
-import com.example.demo.configuration.model.Topic;
-import com.example.demo.configuration.model.Workflow;
 import com.example.demo.data.SupervisionRecord;
+import com.example.demo.model.Node;
+import com.example.demo.model.Topic;
+import com.example.demo.model.Workflow;
+import com.example.demo.topology.processor.SelectHeaderAsKeyProcessor;
 import com.example.demo.topology.processor.UpdateSupervisionStateProcessor;
 import com.example.demo.utils.AvroSerdes;
 import lombok.Builder;
@@ -12,12 +13,16 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Produced;
+import org.apache.kafka.streams.kstream.Repartitioned;
 import org.apache.kafka.streams.processor.api.ProcessorSupplier;
 import org.apache.kafka.streams.state.Stores;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static com.example.demo.Constants.SUPERVISION_STORE;
 
@@ -25,22 +30,19 @@ import static com.example.demo.Constants.SUPERVISION_STORE;
 public class SupervisorTopologyProvider implements Supplier<Topology> {
     private final Workflow workflowDefinition;
     private final String correlationIdHeaderName;
-
-    private final String successOutputTopic;
-    private final String warningOutputTopic;
-    private final String errorOutputTopic;
+    private final String outputTopic;
+    private final Duration purgeSchedulingPeriod;
+    private final Duration eventTimeout;
 
     @Builder
     public SupervisorTopologyProvider(Workflow workflowDefinition,
                                       String correlationIdHeaderName,
-                                      String successOutputTopic,
-                                      String warningOutputTopic,
-                                      String errorOutputTopic) {
+                                      String outputTopic, Duration purgeSchedulingPeriod, Duration eventTimeout) {
         this.workflowDefinition = workflowDefinition;
         this.correlationIdHeaderName = correlationIdHeaderName;
-        this.successOutputTopic = successOutputTopic;
-        this.warningOutputTopic = warningOutputTopic;
-        this.errorOutputTopic = errorOutputTopic;
+        this.outputTopic = outputTopic;
+        this.purgeSchedulingPeriod = purgeSchedulingPeriod;
+        this.eventTimeout = eventTimeout;
     }
 
     private static List<String> getTopicNames(Supplier<List<Topic>> inputTopicNameSupplier) {
@@ -62,50 +64,44 @@ public class SupervisorTopologyProvider implements Supplier<Topology> {
 
         workflowDefinition.forEach(node -> {
             // Consume input topics
-            stream(builder, () -> getProcessor(node, false), node::getInputTopics);
+            stream(builder, () -> getProcessor(node), node::getInputTopics, outputTopic);
 
-            // Consume and process success topics
-            stream(builder, () -> getProcessor(node, node.isFinal()), node::getSuccessOutputTopics, successOutputTopic);
-
-            // Consume and process warning topics
-            stream(builder, () -> getProcessor(node, true), node::getWarningOutputTopics, warningOutputTopic);
-
-            // Consume and process error topics
-            stream(builder, () -> getProcessor(node, true), node::getErrorOutputTopics, errorOutputTopic);
+            // Consume and process final topics
+            stream(builder, () -> getProcessor(node),
+                    () -> node.getOutputTopics().stream().filter(Topic::isFinal).collect(Collectors.toList()),
+                    outputTopic);
         });
 
         return builder.build();
     }
 
-    private UpdateSupervisionStateProcessor getProcessor(Node node, boolean isFinal) {
+    private UpdateSupervisionStateProcessor getProcessor(Node node) {
         return UpdateSupervisionStateProcessor.builder()
                 .correlationIdHeaderName(correlationIdHeaderName)
-                .nodeName(node.getName())
-                .isFinal(isFinal)
+                .purgeSchedulingPeriod(purgeSchedulingPeriod)
+                .eventTimeout(purgeSchedulingPeriod)
+                .node(node)
                 .build();
     }
 
+    // We should therefore save the key in a header and replace it with the correlationId
     private void stream(StreamsBuilder builder,
                         ProcessorSupplier<String, byte[], String, SupervisionRecord> processorSupplier,
                         Supplier<List<Topic>> inputTopicNameSupplier,
                         String outputTopic) {
         List<String> topicNames = getTopicNames(inputTopicNameSupplier);
-        if (!topicNames.isEmpty()) {
-            builder.stream(topicNames, Consumed.with(Serdes.String(), Serdes.ByteArray()))
-                    .process(processorSupplier, SUPERVISION_STORE)
-                    .to(outputTopic, Produced.with(Serdes.String(), AvroSerdes.get()));
-        }
-    }
-
-    private void stream(StreamsBuilder builder,
-                        ProcessorSupplier<String, byte[], String, SupervisionRecord> processorSupplier,
-                        Supplier<List<Topic>> inputTopicNameSupplier) {
-        List<String> topicNames = getTopicNames(inputTopicNameSupplier);
-
-        if (topicNames.isEmpty()) {
-            throw new IllegalArgumentException("Nodes must have at least one input topic.");
-        }
-        builder.stream(topicNames, Consumed.with(Serdes.String(), Serdes.ByteArray()))
-                .process(processorSupplier, SUPERVISION_STORE);
+        topicNames.forEach(topicName -> {
+                    KStream<String, SupervisionRecord> stream = builder.stream(topicName, Consumed.with(Serdes.String(), Serdes.ByteArray()))
+                            // We need to repartition using the correlation id
+                            // TODO: if the topic is already partitioned using the correlation id we could bypass this step
+                            .process(() -> SelectHeaderAsKeyProcessor.builder()
+                                    .correlationIdHeaderName(correlationIdHeaderName).build())
+                            .repartition(Repartitioned.with(Serdes.String(), Serdes.ByteArray()).withName(topicName))
+                            .process(processorSupplier, SUPERVISION_STORE);
+                    if (outputTopic != null) {
+                        stream.to(outputTopic, Produced.with(Serdes.String(), AvroSerdes.get()));
+                    }
+                }
+        );
     }
 }

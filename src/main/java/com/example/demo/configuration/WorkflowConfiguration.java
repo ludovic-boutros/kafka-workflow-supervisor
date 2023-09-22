@@ -1,6 +1,6 @@
 package com.example.demo.configuration;
 
-import com.example.demo.configuration.model.Workflow;
+import com.example.demo.model.Workflow;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
@@ -19,11 +19,14 @@ public class WorkflowConfiguration {
     private String correlationIdHeaderName;
 
     @NonNull
-    private String successOutputTopic;
-    @NonNull
-    private String warningOutputTopic;
-    @NonNull
-    private String errorOutputTopic;
+    private String outputTopic;
+
     @NonNull
     private String name;
+
+    @NonNull
+    private Long purgeSchedulingPeriodSeconds;
+
+    @NonNull
+    private Long eventTimeoutSeconds;
 }

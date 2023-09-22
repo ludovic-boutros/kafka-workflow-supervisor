@@ -14,6 +14,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.ConfigurableApplicationContext;
 
+import java.time.Duration;
+
 
 @SpringBootApplication
 @ConfigurationPropertiesScan("com.example.demo.configuration")
@@ -44,13 +46,16 @@ public class MainApplication implements CommandLineRunner {
         // Get stream configuration from resource folder
         StreamContext.setEnvironment(applicationContext.getEnvironment());
 
+        // Compute workflow tree depth
+        workflow.getDefinition().computeWorkflowTreeDepth();
+
         // Build topology
         SupervisorTopologyProvider topologyProvider = SupervisorTopologyProvider.builder()
                 .workflowDefinition(workflow.getDefinition())
                 .correlationIdHeaderName(workflow.getCorrelationIdHeaderName())
-                .successOutputTopic(workflow.getSuccessOutputTopic())
-                .warningOutputTopic(workflow.getWarningOutputTopic())
-                .errorOutputTopic(workflow.getErrorOutputTopic())
+                .outputTopic(workflow.getOutputTopic())
+                .purgeSchedulingPeriod(Duration.ofSeconds(workflow.getPurgeSchedulingPeriodSeconds()))
+                .eventTimeout(Duration.ofSeconds(workflow.getEventTimeoutSeconds()))
                 .build();
         stream = new KafkaStreams(topologyProvider.get(), StreamContext.getAsProperties());
 

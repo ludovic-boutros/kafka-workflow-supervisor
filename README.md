@@ -24,11 +24,18 @@ It's a simple maven project. Three things to consider:
 
 An [example of configuration](src/main/resources/application.yml) can be found in the resource director.
 
+# Example of topology
+
+Streams are first repartitioned using the correlation id.
+This could be optional if the input topic is already partitioned that way (To be done).
+
+![Topology](images/topology.png)
+
 # TODO
 
-- Manage out of order events
 - Manage stream exception catcher
 - Check Kafka Streams liveness/readyness behavior using actuator
+- Optional repartitioning
 
 
 

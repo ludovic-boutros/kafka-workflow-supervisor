@@ -8,6 +8,18 @@
       "type": "string"
     },
     {
+      "name": "finalEventFound",
+      "type": "boolean"
+    },
+    {
+      "name": "finalWorkflowDepth",
+      "type": "int"
+    },
+    {
+      "name": "lastUpdate",
+      "type": "long"
+    },
+    {
       "name": "events",
       "type": {
         "type": "array",
