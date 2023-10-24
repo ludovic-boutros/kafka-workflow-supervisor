@@ -32,8 +32,4 @@ public class SelectHeaderAsKeyProcessor extends ContextualProcessor<String, byte
                 record.timestamp(),
                 record.headers()));
     }
-
-    @Override
-    public void close() {
-    }
 }

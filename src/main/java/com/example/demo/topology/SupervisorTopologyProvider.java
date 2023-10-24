@@ -93,10 +93,14 @@ public class SupervisorTopologyProvider implements Supplier<Topology> {
         topicNames.forEach(topicName -> {
                     KStream<String, SupervisionRecord> stream = builder.stream(topicName, Consumed.with(Serdes.String(), Serdes.ByteArray()))
                             // We need to repartition using the correlation id
-                            // TODO: if the topic is already partitioned using the correlation id we could bypass this step
                             .process(() -> SelectHeaderAsKeyProcessor.builder()
                                     .correlationIdHeaderName(correlationIdHeaderName).build())
-                            .repartition(Repartitioned.with(Serdes.String(), Serdes.ByteArray()).withName(topicName))
+                            .repartition(
+                                    Repartitioned.with(Serdes.String(), Serdes.ByteArray())
+                                            .withName(topicName)
+                                            // TODO: should be configurable
+                                            .withNumberOfPartitions(4)
+                            )
                             .process(processorSupplier, SUPERVISION_STORE);
                     if (outputTopic != null) {
                         stream.to(outputTopic, Produced.with(Serdes.String(), AvroSerdes.get()));

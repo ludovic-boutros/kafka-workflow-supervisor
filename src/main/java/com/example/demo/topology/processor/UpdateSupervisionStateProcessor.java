@@ -24,7 +24,7 @@ import static com.example.demo.Constants.SUPERVISION_STORE;
 
 @Slf4j
 public class UpdateSupervisionStateProcessor extends ContextualProcessor<String, byte[], String, SupervisionRecord> {
-    public static final String REPARTITION_SUFFIX = "-repartition";
+    private static final String REPARTITION_SUFFIX = "-repartition";
     @NonNull
     private final String correlationIdHeaderName;
     @NonNull
