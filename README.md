@@ -8,8 +8,6 @@ Currently, this supervision is really technical and could be enriched with more 
 
 That's just a demo project. :p
 
-Out of order events are not managed yet.
-
 It must be adapted for your use case.
 
 # Compilation
