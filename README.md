@@ -26,16 +26,25 @@ An [example of configuration](src/main/resources/application.yml) can be found i
 
 # Example of topology
 
-Streams are first repartitioned using the correlation id.
-This could be optional if the input topic is already partitioned that way (To be done).
+Let's imagine an application using two services (Kafka Streams) like the following:
+
+![Topology](images/application.png)
+
+If using this supervision, this will add a Kafka Streams service:
+
+![Topology](images/application-with-supervision.png)
+
+The DLQ contains event without correlation ids.
+
+Streams are first repartitioned using the correlation id and the aggregated using a self-managed state store.
+
+The complete topology of the supervision stream:
 
 ![Topology](images/topology.png)
 
 # TODO
 
-- Manage stream exception catcher
 - Check Kafka Streams liveness/readyness behavior using actuator
-- Optional repartitioning
 - Nodes without input/output topics
 - Cyclic workflows
 

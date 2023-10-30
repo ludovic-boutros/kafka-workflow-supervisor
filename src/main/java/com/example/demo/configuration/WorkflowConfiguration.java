@@ -22,6 +22,9 @@ public class WorkflowConfiguration {
     private String outputTopic;
 
     @NonNull
+    private String dlqTopic;
+
+    @NonNull
     private String name;
 
     @NonNull

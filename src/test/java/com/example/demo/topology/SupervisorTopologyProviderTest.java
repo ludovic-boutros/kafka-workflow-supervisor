@@ -44,6 +44,7 @@ class SupervisorTopologyProviderTest {
     private TestInputTopic<String, byte[]> serviceBErrorTopic;
     // Supervisor topics
     private TestOutputTopic<String, SupervisionRecord> supervisorOutputTopic;
+    private TestOutputTopic<String, byte[]> supervisorDLT;
 
     private TopologyTestDriver testDriver;
     private WorkflowConfiguration workflowConfiguration;
@@ -55,6 +56,7 @@ class SupervisorTopologyProviderTest {
 
         var topology = SupervisorTopologyProvider.builder()
                 .outputTopic(workflowConfiguration.getOutputTopic())
+                .dlqTopic(workflowConfiguration.getDlqTopic())
                 .workflowDefinition(workflowConfiguration.getDefinition())
                 .correlationIdHeaderName(workflowConfiguration.getCorrelationIdHeaderName())
                 .purgeSchedulingPeriod(Duration.ofSeconds(workflowConfiguration.getPurgeSchedulingPeriodSeconds()))
@@ -74,11 +76,20 @@ class SupervisorTopologyProviderTest {
 
         // Supervisor topics
         supervisorOutputTopic = testDriver.createOutputTopic("supervisor.events", Serdes.String().deserializer(), AvroSerdes.<SupervisionRecord>get().deserializer());
+        supervisorDLT = testDriver.createOutputTopic("supervisor.dlq", Serdes.String().deserializer(), Serdes.ByteArray().deserializer());
     }
 
     @AfterEach
     public void tearDown() {
         testDriver.close();
+    }
+
+    @Test
+    public void shouldGetErrorInDTL() {
+        serviceAInputTopic.pipeInput(new TestRecord<>("key-1", "value".getBytes(StandardCharsets.UTF_8)));
+
+        assertTrue(supervisorOutputTopic.readValuesToList().isEmpty());
+        assertFalse(supervisorDLT.isEmpty());
     }
 
     @Test

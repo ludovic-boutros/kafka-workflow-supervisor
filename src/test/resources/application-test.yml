@@ -2,6 +2,7 @@ workflow:
   name: my-workflow
   correlationIdHeaderName: transactionId
   outputTopic: supervisor.events
+  dlqTopic: supervisor.dlq
   purgeSchedulingPeriodSeconds: 10
   eventTimeoutSeconds: 10
   definition:

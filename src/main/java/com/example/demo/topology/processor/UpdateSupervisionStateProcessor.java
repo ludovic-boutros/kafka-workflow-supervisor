@@ -3,6 +3,8 @@ package com.example.demo.topology.processor;
 import com.example.demo.data.Event;
 import com.example.demo.data.SupervisionRecord;
 import com.example.demo.model.Node;
+import com.example.demo.utils.MayBeException;
+import com.example.demo.utils.StreamException;
 import lombok.Builder;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +25,7 @@ import java.util.List;
 import static com.example.demo.Constants.SUPERVISION_STORE;
 
 @Slf4j
-public class UpdateSupervisionStateProcessor extends ContextualProcessor<String, byte[], String, SupervisionRecord> {
+public class UpdateSupervisionStateProcessor extends ContextualProcessor<String, byte[], String, MayBeException<SupervisionRecord, byte[]>> {
     private static final String REPARTITION_SUFFIX = "-repartition";
     @NonNull
     private final String correlationIdHeaderName;
@@ -50,7 +52,7 @@ public class UpdateSupervisionStateProcessor extends ContextualProcessor<String,
     }
 
     @Override
-    public void init(ProcessorContext<String, SupervisionRecord> context) {
+    public void init(ProcessorContext<String, MayBeException<SupervisionRecord, byte[]>> context) {
         super.init(context);
         store = context().getStateStore(SUPERVISION_STORE);
 
@@ -62,7 +64,7 @@ public class UpdateSupervisionStateProcessor extends ContextualProcessor<String,
                     KeyValue<String, SupervisionRecord> next = all.next();
                     if (ts - next.value.getLastUpdate() > eventTimeout.toMillis()) {
                         context().forward(new Record<>(next.value.getCorrelationId(),
-                                next.value,
+                                MayBeException.of(next.value),
                                 next.value.getLastUpdate()));
                         keysToBePurged.add(next.key);
                         log.warn("Purging event: {}", next.value);
@@ -79,7 +81,20 @@ public class UpdateSupervisionStateProcessor extends ContextualProcessor<String,
         Header header = record.headers().lastHeader(correlationIdHeaderName);
 
         if (header == null || header.value() == null || context().recordMetadata().isEmpty()) {
-            log.error("Cannot get correlation id ({}) for record with key: {}", correlationIdHeaderName, record.key());
+            String errorMessage = "Cannot get correlation id (" + correlationIdHeaderName + ") for record with key: " + record.key();
+            log.error(errorMessage);
+            MayBeException<SupervisionRecord, byte[]> exception = MayBeException.of(
+                    StreamException.of(
+                            new IllegalStateException(errorMessage),
+                            record.value()
+                    )
+            );
+
+            context().forward(
+                    new Record<>(record.key(),
+                            exception,
+                            record.timestamp(),
+                            record.headers()));
             return;
         }
 
@@ -113,7 +128,7 @@ public class UpdateSupervisionStateProcessor extends ContextualProcessor<String,
 
         if (isWorkflowComplete(supervisionRecord)) {
             store.delete(correlationId);
-            context().forward(new Record<>(correlationId, supervisionRecord, record.timestamp()));
+            context().forward(new Record<>(correlationId, MayBeException.of(supervisionRecord), record.timestamp()));
         } else {
             store.put(correlationId, supervisionRecord);
         }

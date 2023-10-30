@@ -7,6 +7,8 @@ import com.example.demo.model.Workflow;
 import com.example.demo.topology.processor.SelectHeaderAsKeyProcessor;
 import com.example.demo.topology.processor.UpdateSupervisionStateProcessor;
 import com.example.demo.utils.AvroSerdes;
+import com.example.demo.utils.MayBeException;
+import com.example.demo.utils.StreamExceptionCatcher;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serdes;
@@ -31,16 +33,21 @@ public class SupervisorTopologyProvider implements Supplier<Topology> {
     private final Workflow workflowDefinition;
     private final String correlationIdHeaderName;
     private final String outputTopic;
+    private final String dlqTopic;
     private final Duration purgeSchedulingPeriod;
     private final Duration eventTimeout;
 
     @Builder
     public SupervisorTopologyProvider(Workflow workflowDefinition,
                                       String correlationIdHeaderName,
-                                      String outputTopic, Duration purgeSchedulingPeriod, Duration eventTimeout) {
+                                      String outputTopic,
+                                      String dlqTopic,
+                                      Duration purgeSchedulingPeriod,
+                                      Duration eventTimeout) {
         this.workflowDefinition = workflowDefinition;
         this.correlationIdHeaderName = correlationIdHeaderName;
         this.outputTopic = outputTopic;
+        this.dlqTopic = dlqTopic;
         this.purgeSchedulingPeriod = purgeSchedulingPeriod;
         this.eventTimeout = eventTimeout;
     }
@@ -53,7 +60,6 @@ public class SupervisorTopologyProvider implements Supplier<Topology> {
 
     @Override
     public Topology get() {
-        // TODO: use DTL
         StreamsBuilder builder = new StreamsBuilder();
 
         // Create the statestores
@@ -86,22 +92,31 @@ public class SupervisorTopologyProvider implements Supplier<Topology> {
 
     // We should therefore save the key in a header and replace it with the correlationId
     private void stream(StreamsBuilder builder,
-                        ProcessorSupplier<String, byte[], String, SupervisionRecord> processorSupplier,
+                        ProcessorSupplier<String, byte[], String, MayBeException<SupervisionRecord, byte[]>> processorSupplier,
                         Supplier<List<Topic>> inputTopicNameSupplier,
                         String outputTopic) {
         List<String> topicNames = getTopicNames(inputTopicNameSupplier);
         topicNames.forEach(topicName -> {
-                    KStream<String, SupervisionRecord> stream = builder.stream(topicName, Consumed.with(Serdes.String(), Serdes.ByteArray()))
-                            // We need to repartition using the correlation id
-                            .process(() -> SelectHeaderAsKeyProcessor.builder()
-                                    .correlationIdHeaderName(correlationIdHeaderName).build())
-                            .repartition(
-                                    Repartitioned.with(Serdes.String(), Serdes.ByteArray())
-                                            .withName(topicName)
-                                            // TODO: should be configurable
-                                            .withNumberOfPartitions(4)
-                            )
-                            .process(processorSupplier, SUPERVISION_STORE);
+                    KStream<String, byte[]> repartitionStream =
+                            StreamExceptionCatcher.<String, byte[], byte[]>of("repartition")
+                                    .check(builder.stream(topicName, Consumed.with(Serdes.String(), Serdes.ByteArray()))
+                                                    // We need to repartition using the correlation id
+                                                    .process(() -> SelectHeaderAsKeyProcessor.builder()
+                                                            .correlationIdHeaderName(correlationIdHeaderName).build()),
+                                            dlqTopic)
+                                    .repartition(
+                                            Repartitioned.with(Serdes.String(), Serdes.ByteArray())
+                                                    .withName(topicName)
+                                                    // TODO: should be configurable
+                                                    .withNumberOfPartitions(4)
+                                    );
+
+                    KStream<String, SupervisionRecord> stream =
+                            StreamExceptionCatcher.<String, SupervisionRecord, byte[]>of("final-processing")
+                                    .check(repartitionStream
+                                                    .process(processorSupplier, SUPERVISION_STORE),
+                                            dlqTopic);
+
                     if (outputTopic != null) {
                         stream.to(outputTopic, Produced.with(Serdes.String(), AvroSerdes.get()));
                     }
